@@ -1,0 +1,6 @@
+{
+    "files.exclude": {
+        "**/*.lock": true,
+        "target/": true
+    }
+}

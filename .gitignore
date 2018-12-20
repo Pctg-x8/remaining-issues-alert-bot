@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+**/*.lock
+set_envar.sh
+*.dic
+*.sql

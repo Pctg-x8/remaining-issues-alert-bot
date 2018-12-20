@@ -1,0 +1,22 @@
+[package]
+name = "remaining-issues-alert"
+version = "0.1.0"
+authors = ["S.Percentage <Syn.Tri.Naga@gmail.com>"]
+
+[features]
+offline-check = []
+
+[dependencies]
+asyncslackbot = { git = "https://github.com/Pctg-x8/AsyncSlackBot" }
+reqwest = "*"
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
+regex = "*"
+libc = "*"
+rand = "*"
+chrono = "*"
+r2d2 = "*"
+diesel = { version = "*", features = ["mysql", "chrono", "r2d2"] }
+redis = "*"
+r2d2_redis = "*"
