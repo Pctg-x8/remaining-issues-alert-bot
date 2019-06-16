@@ -1,6 +1,6 @@
 //! JpParser
 
-use cabocha as cabo;
+use crate::cabocha as cabo;
 use std::collections::{HashMap, BTreeMap};
 use std::io::Write;
 use regex::Regex;

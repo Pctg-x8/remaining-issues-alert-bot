@@ -9,8 +9,12 @@ pub struct RemoteProjectHubGate { c: rq::Client, auth: String }
 #[derive(Clone)]
 pub struct RemoteProjectHub(Arc<RemoteProjectHubGate>);
 impl RemoteProjectHub {
-    pub fn new() -> Self {
-        RemoteProjectHub(Arc::new(RemoteProjectHubGate { c: rq::Client::new(), auth: format!("token {}", github_api_token()) }))
+    pub fn new() -> Self
+    {
+        RemoteProjectHub(Arc::new(RemoteProjectHubGate
+        {
+            c: rq::Client::new(), auth: format!("token {}", github_api_token())
+        }))
     }
 
     /// Requests an authorized request to GitHub

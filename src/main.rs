@@ -1,10 +1,6 @@
 
-extern crate libc;
-extern crate asyncslackbot;
 use asyncslackbot::*;
-extern crate reqwest;
-extern crate serde; #[macro_use] extern crate serde_derive; extern crate serde_json;
-extern crate regex; extern crate rand;
+#[macro_use] extern crate serde_derive;
 use rand::Rng; use regex::Regex;
 use std::collections::BTreeMap;
 
@@ -12,11 +8,6 @@ mod cabocha; use cabocha as cabo;
 use std::borrow::Cow;
 
 mod backend; use backend::*;
-extern crate chrono;
-extern crate diesel;
-extern crate r2d2;
-extern crate redis;
-extern crate r2d2_redis;
 mod persistent; use persistent::*;
 use reqwest as rq;
 
@@ -27,6 +18,8 @@ mod readline;
 #[cfg(feature = "offline-check")]
 use readline::Readline;
 use std::io::Write;
+
+use rand::seq::SliceRandom;
 
 #[cfg(not(feature = "offline-check"))]
 fn slack_api_token() -> &'static str { env!("SLACK_API_TOKEN") }
@@ -44,7 +37,8 @@ pub struct PostMessageParams<'s> {
 #[derive(Deserialize, Debug)] #[cfg(feature = "offline-check")]
 pub struct Attachment<'s> { pub color: Option<Cow<'s, str>>, pub text: Option<Cow<'s, str>> }
 
-fn main() {
+fn main()
+{
     println!("SlackBot[Remaining Issues Alerting]");
 
     #[cfg(not(feature = "offline-check"))] launch_rtm::<BotLogic>(slack_api_token());
@@ -230,9 +224,9 @@ impl SlackBotLogic for BotLogic {
                 f.pretty_print(&mut std::io::stdout());
                 std::io::stdout().flush().unwrap();
             }
-            if funcalls.is_empty() {
-                reply_to(&self.api, &e,
-                    rand::thread_rng().choose(&["なぁに？", "呼んだー？", "呼んだ？", "どうしたの？"]).unwrap());
+            if funcalls.is_empty()
+            {
+                reply_to(&self.api, &e, ["なぁに？", "呼んだー？", "呼んだ？", "どうしたの？"].choose(&mut rand::thread_rng()).unwrap());
             }
             else {
                 for f in funcalls.iter().map(Command::encode) {
@@ -264,11 +258,11 @@ impl BotLogic {
                 &format!("An internal error during asking to GitHub for user: {:?}", err)),
             Ok(GitHubResponse::Success(u)) => {
                 self.remote.persistent.init_user(u.response().id as _, sender.user, &u.response().login);
-                let &(pretext, posttext) = rand::thread_rng().choose(&[
+                let &(pretext, posttext) = [
                     ("はじめまして！", "...さん？"),
                     ("わぁー、", "さん？はじめまして！"),
                     ("", "さん！これからよろしくね。")
-                ]).unwrap();
+                ].choose(&mut rand::thread_rng()).unwrap();
                 reply_to(&self.api, sender,
                     &format!("{}{}({}){}", pretext, github_username, u.response().name, posttext));
             },
@@ -497,57 +491,71 @@ impl RemoteResources {
     }
 
     fn greeting_message(&self, tasklist: Option<Vec<CurrentTaskState>>, following_desumasu: bool) -> ProcessResult<String> {
-        let &hello_text1 = if following_desumasu {
-            rand::thread_rng().choose(&["おはようございます！", "おはようございまーす！"]).unwrap()
+        let &hello_text1 = if following_desumasu
+        {
+            ["おはようございます！", "おはようございまーす！"].choose(&mut rand::thread_rng()).unwrap()
         }
-        else {
-            rand::thread_rng().choose(&["おはよう！", "おはよ！"]).unwrap()
+        else
+        {
+            ["おはよう！", "おはよ！"].choose(&mut rand::thread_rng()).unwrap()
         };
         if let Some(tasklist) = tasklist {
             let (hello_text2, tasklines, after_text);
-            if tasklist.is_empty() {
-                hello_text2 = *if following_desumasu {
-                    rand::thread_rng().choose(&["今日のタスクは...0です！", "残ってるお仕事はありませんよー。"]).unwrap()
+            if tasklist.is_empty()
+            {
+                hello_text2 = *if following_desumasu
+                {
+                    ["今日のタスクは...0です！", "残ってるお仕事はありませんよー。"].choose(&mut rand::thread_rng()).unwrap()
                 }
-                else {
-                    rand::thread_rng().choose(&["今残ってるタスクはないかな。", "今日の献立は......えーっと......ないかも"]).unwrap()
+                else
+                {
+                    ["今残ってるタスクはないかな。", "今日の献立は......えーっと......ないかも"]
+                        .choose(&mut rand::thread_rng()).unwrap()
                 };
                 tasklines = Vec::new();
-                after_text = *if following_desumasu {
-                    rand::thread_rng().choose(&[
+                after_text = *if following_desumasu
+                {
+                    [
                         "それじゃ、今日も張り切って行きましょー！！",
                         "毎日お疲れ様、今日も一日頑張って行きましょっ！"
-                    ]).unwrap()
+                    ].choose(&mut rand::thread_rng()).unwrap()
                 }
-                else {
-                    rand::thread_rng().choose(&[
+                else
+                {
+                    [
                         "それじゃ、今日もはりきっていこー！！",
                         "いつもお疲れ様。今日も頑張ってね！！",
                         "毎日頑張ってるね！今日も無理せずいこうね！！"
-                    ]).unwrap()
+                    ].choose(&mut rand::thread_rng()).unwrap()
                 };
             }
-            else {
-                hello_text2 = *if following_desumasu {
-                    rand::thread_rng().choose(&["今日のタスクはこれですよー！", "残りのお仕事はこちらでーす。"]).unwrap()
+            else
+            {
+                hello_text2 = *if following_desumasu
+                {
+                    ["今日のタスクはこれですよー！", "残りのお仕事はこちらでーす。"].choose(&mut rand::thread_rng()).unwrap()
                 }
-                else {
-                    rand::thread_rng().choose(&["今残ってるタスクはこれだよ。", "今日の献立だよー:issue-o::pr::issue-o::pr:"]).unwrap()
+                else
+                {
+                    ["今残ってるタスクはこれだよ。", "今日の献立だよー:issue-o::pr::issue-o::pr:"]
+                        .choose(&mut rand::thread_rng()).unwrap()
                 };
                 tasklines = tasklist.into_iter().map(|x| TaskAchievementWriter(x).to_string()).collect();
-                after_text = *if following_desumasu {
-                    rand::thread_rng().choose(&[
+                after_text = *if following_desumasu
+                {
+                    [
                         "それじゃ、今日も張り切って行きましょー！！",
                         "毎日お疲れ様、今日も一日頑張って行きましょっ！",
                         "まだまだ課題は山積みですよ！でもほどほどにこなしていきましょうね！"
-                    ]).unwrap()
+                    ].choose(&mut rand::thread_rng()).unwrap()
                 }
-                else {
-                    rand::thread_rng().choose(&[
+                else
+                {
+                    [
                         "それじゃ、今日もはりきっていこー！！",
                         "いつもお疲れ様。今日も頑張ってね！！",
                         "毎日頑張ってるね！今日も無理せずいこうね！！"
-                    ]).unwrap()
+                    ].choose(&mut rand::thread_rng()).unwrap()
                 };
             }
 
@@ -557,8 +565,9 @@ impl RemoteResources {
             Ok(hello_text1.to_owned())
         }
     }
-    fn workend_message(&self) -> ProcessResult<String> {
-        let begin_text = rand::thread_rng().choose(&["今日もお疲れさま！"]).unwrap();
+    fn workend_message(&self) -> ProcessResult<String>
+    {
+        let begin_text = ["今日も一日お疲れさま！"].choose(&mut rand::thread_rng()).unwrap();
         let nodata_text = "";
 
         Ok(format!("{}{}", begin_text, nodata_text))
@@ -581,37 +590,45 @@ impl RemoteResources {
         
         Ok(format!("{}は以下の通りだよ:\n{}", user_calls, tasklines.join("\n")).into())
     }
-    fn report_pullrequests(&self, user_calls: &str, opened_assignee: bool, unreviewed: bool)
-            -> rq::Result<Cow<str>> {
+    fn report_pullrequests(&self, user_calls: &str, opened_assignee: bool, unreviewed: bool) -> rq::Result<Cow<str>>
+    {
         let prs = self.repo.pullrequests()?.unwrap();
-        if !opened_assignee && !unreviewed {
+        if !opened_assignee && !unreviewed
+        {
             // random
-            if let Some(pr) = rand::thread_rng().choose(&prs) {
-                Ok(format!("はい。\n{}", OpenedPullRequestFormatter::new(pr, &self.repo)).into())
+            Ok(if let Some(pr) = prs.choose(&mut rand::thread_rng())
+            {
+                format!("はい。\n{}", OpenedPullRequestFormatter::new(pr, &self.repo)).into()
             }
-            else {
-                Ok(Cow::from(*rand::thread_rng().choose(&[
+            else
+            {
+                Cow::from(*[
                     "開いてるPRはないみたい", "開いてるPRはないみたいだね。その調子！",
                     "うーん、ちょっと見当たらないかも......？", "今は届いてなさそうだね"
-                ]).unwrap()))
-            }
+                ].choose(&mut rand::thread_rng()).unwrap())
+            })
         }
-        else {
+        else
+        {
             let filtered: Vec<_> = prs.iter().filter(|p| {
                 (opened_assignee && p.assignees.iter().find(|a| a.login == "Pctg-x8").is_some()) ||
                 (unreviewed && p.requested_reviewers.iter().find(|a| a.login == "Pctg-x8").is_some())
             }).map(|p| OpenedPullRequestFormatter::new(p, &self.repo)).collect();
 
-            if filtered.is_empty() {
-                let mut haystack = vec![
-                    Cow::from(format!("{}はないみたい", user_calls)), format!("{}はないみたいだね。その調子！", user_calls).into(),
-                    "うーん、ちょっと見当たらないかも......？".into(), "今は届いてなさそうだね".into()
+            if filtered.is_empty()
+            {
+                let mut haystack: Vec<Cow<str>> = vec![
+                    format!("{}はないみたい", user_calls).into(),
+                    format!("{}はないみたいだね。その調子！", user_calls).into(),
+                    "うーん、ちょっと見当たらないかも......？".into(),
+                    "今は届いてなさそうだね".into()
                 ];
                 let index = rand::thread_rng().gen_range(0, haystack.len());
 
                 Ok(haystack.remove(index))
             }
-            else {
+            else
+            {
                 let msg = format!("{}はこれかなー\n{}", user_calls,
                     filtered.into_iter().map(|s| s.to_string()).collect::<Vec<_>>().join("\n"));
                 Ok(msg.into())

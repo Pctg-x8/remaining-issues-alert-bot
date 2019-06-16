@@ -3,61 +3,104 @@
 use chrono::{NaiveTime, NaiveDateTime};
 use diesel::*;
 use diesel::sql_query;
-use r2d2::Pool;
+use diesel::{Connection, OptionalExtension};
+use ::r2d2::Pool;
 use r2d2_redis::RedisConnectionManager;
-use redis::{ToRedisArgs, FromRedisValue, RedisResult, PipelineCommands};
+use redis::{ToRedisArgs, FromRedisValue, RedisResult, PipelineCommands, Commands};
 use redis;
 
-use diesel::{backend::Backend, deserialize::FromSql, deserialize::QueryableByName, row::NamedRow};
+use diesel::deserialize::QueryableByName;
 use diesel::sql_types as sqlty;
-use diesel::deserialize::Result as DResult;
 
 pub struct Persistent(Pool<diesel::r2d2::ConnectionManager<MysqlConnection>>, Pool<RedisConnectionManager>);
 
-pub struct UserIotimes {
-    pub github_id: i32, pub slack_id: String, pub github_login: String,
-    pub intime: NaiveTime, pub outtime: NaiveTime
-}
-impl<DB: Backend<RawValue = [u8]>> QueryableByName<DB> for UserIotimes where NaiveTime: FromSql<sqlty::Time, DB> {
-    fn build<R: NamedRow<DB>>(row: &R) -> DResult<Self> {
-        Ok(UserIotimes {
-            github_id: row.get::<sqlty::Integer, _>("github_id")?,
-            slack_id: row.get::<sqlty::Varchar, _>("slack_id")?,
-            github_login: row.get::<sqlty::Varchar, _>("github_login")?,
-            intime: row.get::<sqlty::Time, _>("intime")?,
-            outtime: row.get::<sqlty::Time, _>("outtime")?
-        })
+macro_rules! PreparedSql {
+    ($sql: expr; $($arg: expr => $sqlty: ty),+) => {
+        sql_query($sql) $(.bind::<$sqlty, _>($arg))+
     }
 }
-pub struct LinkedGitHubInfo(i32, String);
-impl<DB: Backend<RawValue = [u8]>> QueryableByName<DB> for LinkedGitHubInfo {
-    fn build<R: diesel::row::NamedRow<DB>>(row: &R) -> DResult<Self> {
-        Ok(LinkedGitHubInfo(row.get::<sqlty::Integer, _>("github_id")?, row.get::<sqlty::Varchar, _>("github_login")?))
+
+#[derive(QueryableByName)]
+pub struct UserIotimes
+{
+    #[sql_type = "sqlty::Integer"]
+    pub github_id: i32,
+    #[sql_type = "sqlty::Varchar"]
+    pub slack_id: String,
+    #[sql_type = "sqlty::Varchar"]
+    pub github_login: String,
+    #[sql_type = "sqlty::Time"]
+    pub intime: NaiveTime,
+    #[sql_type = "sqlty::Time"]
+    pub outtime: NaiveTime
+}
+impl UserIotimes
+{
+    pub fn fetch_all<C: Connection>(con: &C) -> Vec<Self> where Self: QueryableByName<C::Backend>
+    {
+        let select_cols = [
+            "usermap.github_id", "slack_id", "github_login",
+            "coalesce(temporal_intime, default_intime) as intime",
+            "coalesce(temporal_outtime, default_outtime) as outtime"
+        ];
+        let datasource = "user_inout_time right join usermap on usermap.github_id = user_inout_time.github_id";
+
+        sql_query(format!("Select {} from {}", select_cols.join(","), datasource)).load(con).unwrap()
     }
 }
-pub struct UserLastTimes { pub itime: NaiveDateTime, pub otime: NaiveDateTime }
-impl<DB: Backend<RawValue = [u8]>> QueryableByName<DB> for UserLastTimes
-        where NaiveDateTime: FromSql<sqlty::Datetime, DB> {
-    fn build<R: NamedRow<DB>>(row: &R) -> DResult<Self> {
-        Ok(UserLastTimes {
-            itime: row.get::<sqlty::Datetime, _>("itime")?,
-            otime: row.get::<sqlty::Datetime, _>("otime")?
-        })
+#[derive(QueryableByName)]
+pub struct LinkedGitHubInfo
+{
+    #[sql_type = "sqlty::Integer"]
+    pub github_id: i32,
+    #[sql_type = "sqlty::Varchar"]
+    pub github_login: String
+}
+impl LinkedGitHubInfo
+{
+    fn fetch1<C: Connection>(con: &C, slack_id: &str) -> Option<Self> where
+        Self: QueryableByName<C::Backend>
+    {
+        PreparedSql!("Select github_id, github_login from usermap where slack_id=? limit 1"; slack_id => sqlty::Varchar)
+            .get_result(con).optional().unwrap()
+    }
+}
+#[derive(QueryableByName)]
+pub struct UserLastTimes
+{
+    #[sql_type = "sqlty::Datetime"]
+    pub itime: NaiveDateTime,
+    #[sql_type = "sqlty::Datetime"]
+    pub otime: NaiveDateTime
+}
+impl UserLastTimes
+{
+    pub fn fetch1<C: Connection>(con: &C, github_id: i32) -> Option<Self> where
+        Self: QueryableByName<C::Backend>
+    {
+        PreparedSql!("Select last_intime as itime, last_outtime as otime
+            from user_inout_time where github_id=? limit 1"; github_id => sqlty::Integer)
+            .get_result::<Self>(con).optional().unwrap()
     }
 }
 
 pub struct RemainingWork { pub issue_id: u32, pub progress: Option<(u32, u32)> }
-impl<'a> ToRedisArgs for &'a RemainingWork {
-    fn write_redis_args(&self, out: &mut Vec<Vec<u8>>) {
-        if let Some((c, t)) = self.progress {
+impl<'a> ToRedisArgs for &'a RemainingWork
+{
+    fn write_redis_args(&self, out: &mut Vec<Vec<u8>>)
+    {
+        if let Some((c, t)) = self.progress
+        {
             format!("{}:{}:{}", self.issue_id, c, t).write_redis_args(out);
         }
-        else {
+        else
+        {
             self.issue_id.write_redis_args(out);
         }
     }
 }
-impl FromRedisValue for RemainingWork {
+impl FromRedisValue for RemainingWork
+{
     fn from_redis_value(v: &redis::Value) -> RedisResult<Self> {
         if let redis::Value::Status(ref s) = v {
             let mut values = s.split(":");
@@ -76,14 +119,9 @@ impl FromRedisValue for RemainingWork {
     }
 }
 
-macro_rules! PreparedSql {
-    ($sql: expr; $($arg: expr => $sqlty: ty),+) => {
-        sql_query($sql) $(.bind::<$sqlty, _>($arg))+
-    }
-}
-
 impl Persistent {
-    pub fn new() -> Self {
+    pub fn new() -> Self
+    {
         let con = diesel::r2d2::ConnectionManager::new(env!("DATABASE_URL"));
         let rcon = RedisConnectionManager::new(env!("REDIS_URL")).unwrap();
         let pool = Pool::builder().build(con).expect("MySQL Connection failed");
@@ -92,50 +130,52 @@ impl Persistent {
         Persistent(pool, rpool)
     }
 
-    pub fn init_user(&self, github_id: i32, slack_id: &str, github_login: &str) {
+    pub fn init_user(&self, github_id: i32, slack_id: &str, github_login: &str)
+    {
         let con = self.0.get().unwrap();
 
-        PreparedSql!("Replace into usermap (github_id, slack_id, github_login) values (?, ?, ?)";
-            github_id => sqlty::Integer, slack_id => sqlty::Varchar, github_login => sqlty::Varchar)
-            .execute(&con).unwrap();
-        PreparedSql!("Replace into user_inout_time (github_id, last_intime, last_outtime)
-            values (?, utc_time(), timestamp(utc_date()-1, '10:00:00'))"; github_id => sqlty::Integer)
-            .execute(&con).unwrap();
-        PreparedSql!(
-            "Replace into user_last_act_time (github_id, by_mention) values (?, null)"; github_id => sqlty::Integer)
-            .execute(&con).unwrap();
+        con.transaction(||
+        {
+            PreparedSql!("Replace into usermap (github_id, slack_id, github_login) values (?, ?, ?)";
+                github_id => sqlty::Integer, slack_id => sqlty::Varchar, github_login => sqlty::Varchar)
+                .execute(&con)?;
+            PreparedSql!("Replace into user_inout_time (github_id, last_intime, last_outtime)
+                values (?, utc_time(), timestamp(utc_date()-1, '10:00:00'))"; github_id => sqlty::Integer)
+                .execute(&con)?;
+            PreparedSql!(
+                "Replace into user_last_act_time (github_id, by_mention) values (?, null)"; github_id => sqlty::Integer)
+                .execute(&con)?;
+            
+            Ok(())
+        }).unwrap();
     }
-    pub fn forall_user_iotimes(&self) -> Vec<UserIotimes> {
-        sql_query("Select usermap.github_id, slack_id, github_login, coalesce(temporal_intime, default_intime) as intime,
-            coalesce(temporal_outtime, default_outtime) as outtime
-            from user_inout_time right join usermap on usermap.github_id = user_inout_time.github_id")
-            .load(&self.0.get().unwrap()).unwrap()
+    pub fn forall_user_iotimes(&self) -> Vec<UserIotimes>
+    {
+        UserIotimes::fetch_all(&self.0.get().unwrap())
     }
-    pub fn query_github_from_slack_id(&self, slack_id: &str) -> Option<(i32, String)> {
-        let mut items =
-            PreparedSql!("Select github_id, github_login from usermap where slack_id=? limit 1"; slack_id => sqlty::Varchar)
-            .load::<LinkedGitHubInfo>(&self.0.get().unwrap()).unwrap();
-        if items.is_empty() { None } else { let p = items.pop().unwrap(); (p.0, p.1).into() }
+    /// Fetch a linked github user id and login name, by slack id.
+    pub fn query_github_from_slack_id(&self, slack_id: &str) -> Option<(i32, String)>
+    {
+        LinkedGitHubInfo::fetch1(&self.0.get().unwrap(), slack_id).map(|l| (l.github_id, l.github_login))
     }
-    fn update_user_last_intime(&self, github_id: i32, last_intime: NaiveDateTime) {
+    fn update_user_last_intime(&self, github_id: i32, last_intime: NaiveDateTime)
+    {
         PreparedSql!("Update user_inout_time set last_intime=? where github_id=?";
             last_intime => sqlty::Datetime, github_id => sqlty::Integer).execute(&self.0.get().unwrap()).unwrap();
     }
-    pub fn update_user_last_outtime(&self, github_id: i32, last_outtime: NaiveDateTime) {
+    pub fn update_user_last_outtime(&self, github_id: i32, last_outtime: NaiveDateTime)
+    {
         PreparedSql!("Update user_inout_time set last_outtime=? where github_id=?";
             last_outtime => sqlty::Datetime, github_id => sqlty::Integer).execute(&self.0.get().unwrap()).unwrap();
     }
 
-    pub fn is_user_working(&self, github_id: i32) -> bool {
-        let userstates = PreparedSql!("Select last_intime as itime, last_outtime as otime
-            from user_inout_time where github_id=? limit 1"; github_id => sqlty::Integer)
-            .load::<UserLastTimes>(&self.0.get().unwrap()).unwrap();
-        if userstates.is_empty() { return false; }
-        let ref userstate = userstates[0];
-        userstate.itime > userstate.otime
+    pub fn is_user_working(&self, github_id: i32) -> bool
+    {
+        UserLastTimes::fetch1(&self.0.get().unwrap(), github_id).map_or(false, |st| st.itime > st.otime)
     }
 
-    pub fn user_setup_work(&self, github_id: i32, last_intime: NaiveDateTime, remaining_works: &[RemainingWork]) {
+    pub fn user_setup_work(&self, github_id: i32, last_intime: NaiveDateTime, remaining_works: &[RemainingWork])
+    {
         self.update_user_last_intime(github_id, last_intime);
         let k = github_id.to_string();
         let con = self.1.get().unwrap();
@@ -144,7 +184,8 @@ impl Persistent {
             p.query(&*con)
         }).unwrap();
     }
-    pub fn user_completed_works(&self, github_id: i32, remaining_works: &[RemainingWork]) {
-        
+    pub fn user_moveout_works(&self, github_id: i32) -> Option<Vec<RemainingWork>>
+    {
+        self.1.get().unwrap().lrange(github_id.to_string(), 0, -1).unwrap()
     }
 }
