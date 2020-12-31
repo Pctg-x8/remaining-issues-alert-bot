@@ -1,12 +1,10 @@
 
-use reqwest as rq;
-
 #[derive(Debug)]
 pub enum ProcessError {
-    UserUnidentifiable, UncountableObjective, Network(rq::Error), RecognizationFailure(String),
-    GithubAPIError(rq::Error)
+    UserUnidentifiable, UncountableObjective, Network(surf::Error), RecognizationFailure(String),
+    GithubAPIError(surf::Error)
 }
-impl From<rq::Error> for ProcessError { fn from(v: rq::Error) -> Self { ProcessError::Network(v) } }
+impl From<surf::Error> for ProcessError { fn from(v: surf::Error) -> Self { ProcessError::Network(v) } }
 type ProcessResult<T> = Result<T, ProcessError>;
 
 fn utcnow() -> chrono::NaiveDateTime { chrono::Utc::now().naive_utc() }

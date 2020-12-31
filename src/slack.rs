@@ -1,27 +1,26 @@
 //! Slack API
 
-use reqwest as r;
 use serde::Serialize;
 
 fn bearer_header_value() -> String { format!("Bearer {}", std::env::var("SLACK_API_TOKEN").expect("SLACK_API_TOKEN not set")) }
 
-pub trait SlackWebApi: Serialize {
+pub trait SlackWebApi: Serialize + Sized {
     const EP: &'static str;
 
-    fn to_post_request(&self) -> r::Request {
-        let mut r = r::Request::new(r::Method::POST, r::Url::parse(Self::EP).expect("invalid ep url"));
-        *r.body_mut() = Some(serde_json::to_string(self).expect("serializing params").into());
-        r.headers_mut().insert(r::header::CONTENT_TYPE, r::header::HeaderValue::from_static("application/json"));
-        r.headers_mut().insert(r::header::AUTHORIZATION, r::header::HeaderValue::from_str(&bearer_header_value()).expect("conversion failed"));
+    fn to_post_request(&self) -> surf::Request {
+        let mut r = surf::Request::new(surf::http::Method::Post, surf::Url::parse(Self::EP).expect("invalid ep url"));
+        r.body_json(self).expect("Failed to serialize Slack request");
+        r.append_header(surf::http::headers::CONTENT_TYPE, "application/json");
+        r.append_header(surf::http::headers::AUTHORIZATION, &bearer_header_value());
 
         r
     }
 }
 #[derive(serde::Deserialize)]
 pub struct GenericResult { pub ok: bool }
-pub fn send<P: SlackWebApi>(params: P) -> impl std::future::Future<Output = r::Result<bool>> {
+pub fn send<P: SlackWebApi>(params: P) -> impl std::future::Future<Output = surf::Result<bool>> {
     let rq = params.to_post_request();
-    async move { r::Client::new().execute(rq).await?.json::<GenericResult>().await.map(|r| r.ok) }
+    async move { surf::Client::new().send(rq).await?.body_json::<GenericResult>().await.map(|r| r.ok) }
 }
 
 pub mod chat

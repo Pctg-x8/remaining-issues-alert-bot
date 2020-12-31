@@ -39,14 +39,10 @@ pub struct PostMessageParams<'s> {
 #[derive(Deserialize, Debug)] #[cfg(feature = "offline-check")]
 pub struct Attachment<'s> { pub color: Option<Cow<'s, str>>, pub text: Option<Cow<'s, str>> }
 
-static mut GLOBAL_RUNTIME: *mut tokio::runtime::Runtime = std::ptr::null_mut();
-
-#[tokio::main]
+#[async_std::main]
 async fn main() {
     println!("SlackBot[Remaining Issues Alerting]");
     if dotenv::from_filename(".conf.e").is_err() { warn!("Failed to load .conf.e file"); }
-    let mut rt = tokio::runtime::Runtime::new().expect("Failed to initialize async runtime");
-    unsafe { GLOBAL_RUNTIME = &mut rt; }
 
     #[cfg(not(feature = "offline-check"))] launch_rtm::<BotLogic>(String::from(slack_api_token())).await;
     #[cfg(feature = "offline-check")] mock_rtm::<BotLogic>();
@@ -94,20 +90,22 @@ use std::sync::Arc;
 pub struct UserNotifyHandler { remote: Arc<core::RemoteResources>, api: Arc<AsyncSlackApiSender> }
 impl sched::EventHandler<UserNotify> for UserNotifyHandler {
     fn handle_batch(&self, events: Vec<Option<UserNotify>>) {
-        let rt = unsafe { &mut *GLOBAL_RUNTIME };
-
         for e in events.into_iter().filter_map(|x| x) {
             println!("Notify: {:?}", e);
-            match e {
-                UserNotify::Hello(skid, ghid, ghl) => match rt.block_on(self.remote.greeting(core::User::GitHub(ghid, ghl.into()), false)) {
-                    Ok(m) => unsafe { (*GLOBAL_RUNTIME).block_on(general_reply_to_id(&self.api, &skid, &m)) },
-                    Err(er) => { eprintln!("An error occured while generating hello message: {:?}", er); }
-                },
-                UserNotify::ByeReport(skid, ghid, ghl) => match self.remote.workend(core::User::GitHub(ghid, ghl.into())) {
-                    Ok(m) => unsafe { (*GLOBAL_RUNTIME).block_on(general_reply_to_id(&self.api, &skid, &m)); },
-                    Err(er) => { eprintln!("An error occured while generating workend message: {:?}", er); }
+            async_std::task::block_on(async {
+                match e {
+                    UserNotify::Hello(skid, ghid, ghl) =>
+                        match self.remote.greeting(core::User::GitHub(ghid, ghl.into()), false).await {
+                            Ok(m) => unsafe { general_reply_to_id(&self.api, &skid, &m).await },
+                            Err(er) => { eprintln!("An error occured while generating hello message: {:?}", er); }
+                        },
+                    UserNotify::ByeReport(skid, ghid, ghl) =>
+                        match self.remote.workend(core::User::GitHub(ghid, ghl.into())) {
+                            Ok(m) => unsafe { general_reply_to_id(&self.api, &skid, &m).await; },
+                            Err(er) => { eprintln!("An error occured while generating workend message: {:?}", er); }
+                        }
                 }
-            }
+            });
         }
     }
 }
@@ -125,10 +123,9 @@ pub struct BotLogic {
 impl SlackBotLogic for BotLogic {
     fn launch(api: AsyncSlackApiSender, botinfo: &ConnectionAccountInfo, _teaminfo: &TeamInfo) -> Self {
         println!("Bot Connected as {}({})", botinfo.name, botinfo.id);
-        let rt = unsafe { &mut *GLOBAL_RUNTIME };
         let apiclient = Arc::new(api);
 
-        let remote = Arc::new(rt.block_on(core::RemoteResources::new(&database_url(), &redis_url())));
+        let remote = Arc::new(async_std::task::block_on(core::RemoteResources::new(&database_url(), &redis_url())));
         let iotimes = remote.persistent.forall_user_iotimes();
         let current_time = chrono::Utc::now().naive_utc();
         println!("CurrentTime: {}", current_time);
@@ -197,7 +194,7 @@ impl SlackBotLogic for BotLogic {
                     let reply_to_user = ReplyUserIdentity::from(&e);
                     let src_text = e.text.into_owned();
 
-                    tokio::task::spawn(async move {
+                    async_std::task::spawn(async move {
                         match exec.first_contact(&gh_username, &reply_to_user.user).await {
                             Ok(s) => { reply_to_async(&reply_to_user, &s).await; },
                             Err(err) => { report_error_async(&reply_to_user, &src_text, &format!("{:?}", err)).await; }
@@ -240,7 +237,7 @@ impl SlackBotLogic for BotLogic {
             if funcalls.is_empty() {
                 let msg = ["なぁに？", "呼んだー？", "呼んだ？", "どうしたの？"]
                     .choose(&mut rand::thread_rng()).unwrap();
-                tokio::task::spawn(reply_to_async(&From::from(&e), msg));
+                async_std::task::spawn(reply_to_async(&From::from(&e), msg));
             } else {
                 for f in funcalls.iter().map(core::Command::encode) {
                     let exec = core::CommandExecutor::new(&self.remote);
@@ -248,7 +245,7 @@ impl SlackBotLogic for BotLogic {
                     let reply_to_user = ReplyUserIdentity::from(&e);
                     let src_text = String::from(&e.text as &str);
 
-                    tokio::task::spawn(async move {
+                    async_std::task::spawn(async move {
                         let res = match f {
                             Ok(x) => match exec.execute(x, core::User::Slack(&reply_to_user.user)).await {
                                 Ok(s) => { reply_to_async(&reply_to_user, &s).await; Ok(()) },
@@ -324,8 +321,8 @@ fn reply_to_async<'m>(src: &ReplyUserIdentity, msg: &str) -> impl std::future::F
     let text = format!("<@{}> {}", src.user, msg);
     let p = slack::chat::PostMessage::new(&src.channel, &text).as_user(true).to_post_request();
     async move {
-        reqwest::Client::new().execute(p).await.expect("post err")
-            .json::<slack::GenericResult>().await.expect("ilformed response").ok
+        surf::Client::new().send(p).await.expect("post err")
+            .body_json::<slack::GenericResult>().await.expect("ilformed response").ok
     }
 }
 fn report_error_async(replying: &ReplyUserIdentity, text: &str, msg: &str) -> impl std::future::Future<Output = bool> {
@@ -341,8 +338,8 @@ fn report_error_async(replying: &ReplyUserIdentity, text: &str, msg: &str) -> im
         .to_post_request();
     
     async move {
-        reqwest::Client::new().execute(p).await.expect("post err")
-            .json::<slack::GenericResult>().await.expect("ilformed response").ok
+        surf::Client::new().send(p).await.expect("post err")
+            .body_json::<slack::GenericResult>().await.expect("ilformed response").ok
     }
 }
 
