@@ -183,7 +183,8 @@ impl TellWhat {
     fn count_of(self) -> Self { TellWhat::CountOf(Box::new(self)) }
 }
 #[derive(Debug)]
-pub enum Command {
+pub enum Command
+{
     /// おはよう/おはようございます など 丁寧語の場合trueになる(返答を若干変える)
     Greeting(bool),
     /// 「教える」(教える、教えて、教えて欲しい、など)コマンド
@@ -192,9 +193,12 @@ pub enum Command {
     /// 「帰る」
     EndWorking(Option<TimeAt>, DayOffset)
 }
-impl Command {
-    pub fn encode<'s>(form: &CallingForm<'s>) -> Result<Self, String> {
-        match form {
+impl Command
+{
+    pub fn encode<'s>(form: &CallingForm<'s>) -> Result<Self, String>
+    {
+        match form
+        {
             CallingForm::Verb("教える", _, e) => {
                 let arg1 = e.args.any_first_postposition(&["を", "について"])
                     .or(e.args.without_postposition.first())

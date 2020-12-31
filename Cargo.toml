@@ -8,9 +8,8 @@ edition = "2018"
 offline-check = []
 
 [dependencies]
-asyncslackbot = { git = "https://github.com/Pctg-x8/AsyncSlackBot" }
-reqwest = "*"
-serde = "*"
+asyncslackbot = { git = "https://github.com/Pctg-x8/AsyncSlackBot", branch = "async" }
+serde = { version = "1.0", features = ["derive"] }
 serde_derive = "*"
 serde_json = "*"
 regex = "*"
@@ -19,5 +18,13 @@ rand = "*"
 chrono = "*"
 r2d2 = "*"
 diesel = { version = "*", features = ["mysql", "chrono", "r2d2"] }
-redis = "*"
+redis = "0.15"
 r2d2_redis = "*"
+log = "0.4"
+tokio = { version = "0.2", features = ["full"] }
+futures-util = "0.3"
+dotenv = "0.15"
+
+[dependencies.reqwest]
+version = "*"
+features = ["json"]

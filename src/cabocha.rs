@@ -5,17 +5,20 @@ use std::ptr::NonNull;
 use std::ffi::{CStr, CString};
 use std::slice;
 
-#[repr(C)] pub struct Chunk {
+#[repr(C)] pub struct Chunk
+{
     pub link: c_int, pub head_pos: usize, pub func_pos: usize, pub token_size: usize, pub token_pos: usize,
     pub score: c_float, pub feature_list: *const *const c_char, pub additional_info: *const c_char,
     pub feature_list_size: c_ushort
 }
-#[repr(C)] pub struct Token {
+#[repr(C)] pub struct Token
+{
     pub surface: *const c_char, pub normalized_surface: *const c_char,
     pub feature: *const c_char, pub feature_list: *const *const c_char, pub feature_list_size: c_ushort,
     pub ne: *const c_char, pub additional_info: *const c_char, pub chunk: *const Chunk
 }
-impl Chunk {
+impl Chunk
+{
     /*pub fn features(&self) -> Vec<&str> {
         unsafe {
             slice::from_raw_parts(self.feature_list, self.feature_list_size as _)

@@ -17,13 +17,10 @@ use std::ffi::{CString, CStr};
 use std::str::Utf8Error;
 
 pub struct MallocStr(*mut c_char);
-impl Drop for MallocStr {
-    fn drop(&mut self) { unsafe { free(self.0 as *mut _) } }
-}
-impl MallocStr {
-    pub fn as_str(&self) -> Result<&str, Utf8Error> {
-        unsafe { CStr::from_ptr(self.0).to_str() }
-    }
+impl Drop for MallocStr { fn drop(&mut self) { unsafe { free(self.0 as *mut _) } } }
+impl MallocStr
+{
+    pub fn as_str(&self) -> Result<&str, Utf8Error> { unsafe { CStr::from_ptr(self.0).to_str() } }
 }
 
 pub struct Readline(Option<CString>);

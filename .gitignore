@@ -4,3 +4,5 @@
 set_envar.sh
 *.dic
 *.sql
+.env
+.conf.e
