@@ -62,7 +62,7 @@ impl CommandExecutor {
 pub enum User<'s> { Slack(&'s str), GitHub(i32, Cow<'s, str>) }
 impl<'s> User<'s> {
     #[cfg(feature = "offline-check")]
-    pub fn identify_as_github_id(self, persistent: &Persistent) -> ProcessResult<(i32, Cow<'s, str>)> {
+    pub fn identify_as_github_id(self, _persistent: &super::Persistent) -> super::ProcessResult<(i32, Cow<'s, str>)> {
         match self {
             User::Slack(_) => Ok((1234567, Cow::Borrowed("GitHubMockUser"))),
             User::GitHub(id, login) => Ok((id, login))

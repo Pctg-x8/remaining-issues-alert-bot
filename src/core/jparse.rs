@@ -144,12 +144,12 @@ impl TellWhat {
                 })
             },
             "課題" => {
-                fn descending(mods: &JpArguments, unresolved: &mut bool) -> Result<(), String> {
+                fn descending2(mods: &JpArguments, unresolved: &mut bool) -> Result<(), String> {
                     if mods.is_empty() { Ok(()) }
                     else if let Some(a) = mods.any_first_postposition(&["の"]) {
                         if a.is_exact_reading_forms_of(&[Some("ミ"), Some("カイケツ")]) {
                             *unresolved = true;
-                            descending(&a.mods, unresolved)
+                            descending2(&a.mods, unresolved)
                         }
                         else {
                             Err(format!("「{}」ってどういう意味？", a.flat_text()))
@@ -161,7 +161,7 @@ impl TellWhat {
                 }
 
                 let mut unresolved = false;
-                descending(mods, &mut unresolved).map(|_| TellWhat::Issues {
+                descending2(mods, &mut unresolved).map(|_| TellWhat::Issues {
                     unresolved,
                     user_calls: format!("{}課題", mods.to_string()),
                     ask_for_remains: mods.without_postposition.iter()

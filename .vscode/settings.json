@@ -2,5 +2,7 @@
     "files.exclude": {
         "**/*.lock": true,
         "target/": true
-    }
+    },
+    "rust-analyzer.cargo.features": [],
+    "editor.formatOnSave": true
 }

@@ -1,75 +1,190 @@
 //! Slack API
 
-use serde::Serialize;
+use serde::de::DeserializeOwned;
+use std::{future::Future, pin::Pin};
 
-fn bearer_header_value() -> String { format!("Bearer {}", std::env::var("SLACK_API_TOKEN").expect("SLACK_API_TOKEN not set")) }
-
-pub trait SlackWebApi: Serialize + Sized {
-    const EP: &'static str;
-
-    fn to_post_request(&self) -> surf::Request {
-        let mut r = surf::Request::new(surf::http::Method::Post, surf::Url::parse(Self::EP).expect("invalid ep url"));
-        r.body_json(self).expect("Failed to serialize Slack request");
-        r.append_header(surf::http::headers::CONTENT_TYPE, "application/json");
-        r.append_header(surf::http::headers::AUTHORIZATION, &bearer_header_value());
-
-        r
-    }
-}
 #[derive(serde::Deserialize)]
-pub struct GenericResult { pub ok: bool }
-pub fn send<P: SlackWebApi>(params: P) -> impl std::future::Future<Output = surf::Result<bool>> {
-    let rq = params.to_post_request();
-    async move { surf::Client::new().send(rq).await?.body_json::<GenericResult>().await.map(|r| r.ok) }
+pub struct GenericResult {
+    pub ok: bool,
 }
 
-pub mod chat
+pub enum ApiResult<T> {
+    Ok(T),
+    Errored(String),
+}
+// https://github.com/serde-rs/serde/issues/880
+impl<'d, T> serde::Deserialize<'d> for ApiResult<T>
+where
+    T: serde::Deserialize<'d>,
 {
-    use std::borrow::Cow;
+    fn deserialize<D: serde::de::Deserializer<'d>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut e = serde_json::Map::deserialize(deserializer)?;
+        let ok = e
+            .remove("ok")
+            .ok_or_else(|| serde::de::Error::missing_field("ok"))
+            .map(bool::deserialize)?
+            .map_err(serde::de::Error::custom)?;
+        if ok {
+            T::deserialize(serde_json::Value::Object(e))
+                .map(ApiResult::Ok)
+                .map_err(serde::de::Error::custom)
+        } else {
+            e.remove("error")
+                .ok_or_else(|| serde::de::Error::missing_field("error"))
+                .map(String::deserialize)?
+                .map_err(serde::de::Error::custom)
+                .map(ApiResult::Errored)
+        }
+    }
+}
+impl<T> ApiResult<T> {
+    pub fn into_result(self) -> Result<T, String> {
+        match self {
+            Self::Ok(v) => Ok(v),
+            Self::Errored(e) => Err(e),
+        }
+    }
+}
 
-    #[derive(serde::Serialize)]
-    pub struct PostMessage<'s>
-    {
-        pub channel: &'s str, pub text: &'s str,
-        pub as_user: Option<bool>,
-        pub attachments: Vec<Attachment<'s>>
+pub trait IApiSender {
+    type Error;
+
+    fn send<A: asyncslackbot::SlackWebAPI>(
+        &self,
+        call: &A,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<ApiResult<()>, Self::Error>> + Send>> {
+        self.send_apicall(call.to_apicall())
     }
-    impl<'s> super::SlackWebApi for PostMessage<'s>
+    fn send_apicall(
+        &self,
+        call: asyncslackbot::SlackWebApiCall,
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<()>, Self::Error>> + Send>>;
+    fn send2<A: Api>(
+        &self,
+        call: &A,
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<A::Response>, Self::Error>> + Send>>
+    where
+        A::Response: DeserializeOwned + 'static,
     {
-        const EP: &'static str = "https://slack.com/api/chat.postMessage";
+        self.send_apicall2(call.to_apicall())
     }
-    impl<'s> PostMessage<'s>
+    fn send_apicall2<R: DeserializeOwned + 'static>(
+        &self,
+        call: asyncslackbot::SlackWebApiCall,
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<R>, Self::Error>> + Send>>;
+}
+impl<T: IApiSender> IApiSender for std::sync::Arc<T> {
+    type Error = T::Error;
+
+    fn send<A: asyncslackbot::SlackWebAPI>(
+        &self,
+        call: &A,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<ApiResult<()>, Self::Error>> + Send>> {
+        T::send(self, call)
+    }
+    fn send_apicall(
+        &self,
+        call: asyncslackbot::SlackWebApiCall,
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<()>, Self::Error>> + Send>> {
+        T::send_apicall(self, call)
+    }
+    fn send2<A: Api>(
+        &self,
+        call: &A,
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<A::Response>, Self::Error>> + Send>>
+    where
+        A::Response: DeserializeOwned + 'static,
     {
-        pub fn new(channel: &'s str, text: &'s str) -> Self
-        {
-            PostMessage
-            {
-                channel, text,
-                as_user: None, attachments: Vec::new()
-            }
+        T::send2(self, call)
+    }
+    fn send_apicall2<R: DeserializeOwned + 'static>(
+        &self,
+        call: asyncslackbot::SlackWebApiCall,
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<R>, Self::Error>> + Send>> {
+        T::send_apicall2(self, call)
+    }
+}
+
+pub struct ApiClient {
+    auth_text: String,
+    client: surf::Client,
+}
+impl ApiClient {
+    pub fn new(tok: &str) -> Self {
+        let client = surf::Client::new();
+        // client.set_base_url(Url::parse("https://slack.com/api/").expect("invalid base url?"));
+
+        Self {
+            auth_text: format!("Bearer {}", tok),
+            client,
         }
-        pub fn as_user(mut self, enable: bool) -> Self
-        {
-            self.as_user = Some(enable);
-            self
-        }
-        pub fn attachment(mut self, a: Attachment<'s>) -> Self
-        {
-            self.attachments.push(a);
-            self
-        }
     }
-    
-    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-    pub struct Attachment<'s>
-    {
-        pub color: Option<Cow<'s, str>>, pub text: Option<Cow<'s, str>>
-    }
-    impl<'s> Default for Attachment<'s>
-    {
-        fn default() -> Self
-        {
-            Attachment { color: None, text: None }
+}
+impl IApiSender for ApiClient {
+    type Error = surf::Error;
+
+    fn send_apicall(
+        &self,
+        call: asyncslackbot::SlackWebApiCall,
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<()>, surf::Error>> + Send>> {
+        pub struct SlackWebApiCall {
+            endpoint: &'static str,
+            paramdata: String,
         }
+        let call: SlackWebApiCall = unsafe { std::mem::transmute(call) };
+        log::trace!("Post: {:?}", call.paramdata);
+        let rb = self
+            .client
+            .post(call.endpoint)
+            .header(surf::http::headers::AUTHORIZATION, self.auth_text.clone())
+            .body(call.paramdata)
+            .content_type(surf::http::mime::JSON);
+
+        Box::pin(rb.recv_json())
     }
+    fn send_apicall2<R: DeserializeOwned + 'static>(
+        &self,
+        call: asyncslackbot::SlackWebApiCall,
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<R>, surf::Error>> + Send>> {
+        pub struct SlackWebApiCall {
+            endpoint: &'static str,
+            paramdata: String,
+        }
+        let call: SlackWebApiCall = unsafe { std::mem::transmute(call) };
+        let rb = self
+            .client
+            .post(call.endpoint)
+            .header(surf::http::headers::AUTHORIZATION, self.auth_text.clone())
+            .body(call.paramdata)
+            .content_type(surf::http::mime::JSON);
+
+        Box::pin(rb.recv_json())
+    }
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct ListedUser {
+    pub id: String,
+}
+#[derive(serde::Deserialize, Debug)]
+pub struct UsersList {
+    pub resources: Vec<ListedUser>,
+}
+
+pub trait Api: asyncslackbot::SlackWebAPI {
+    type Response;
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct AuthTestResponse {
+    pub user: String,
+    pub user_id: String,
+}
+#[derive(serde::Serialize)]
+pub struct AuthTestRequest;
+impl asyncslackbot::SlackWebAPI for AuthTestRequest {
+    const EP: &'static str = "https://slack.com/api/auth.test";
+}
+impl Api for AuthTestRequest {
+    type Response = AuthTestResponse;
 }

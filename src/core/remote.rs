@@ -164,7 +164,7 @@ impl RemoteResources {
                     "うーん、ちょっと見当たらないかも......？".into(),
                     "今は届いてなさそうだね".into()
                 ];
-                let index = rand::thread_rng().gen_range(0, haystack.len());
+                let index = rand::thread_rng().gen_range(0 .. haystack.len());
 
                 Ok(haystack.remove(index))
             } else {

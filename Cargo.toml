@@ -9,6 +9,7 @@ offline-check = []
 
 [dependencies]
 asyncslackbot = { git = "https://github.com/Pctg-x8/AsyncSlackBot", branch = "async" }
+slack-socket-mode-client = { git = "https://github.com/Pctg-x8/slack-socket-mode-client", features = ["runtime-async-std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "*"
 serde_json = "*"
@@ -21,7 +22,10 @@ diesel = { version = "*", features = ["mysql", "chrono", "r2d2"] }
 redis = "0.15"
 r2d2_redis = "*"
 log = "0.4"
+env_logger = "0.5"
 surf = "2.1"
 async-std = { version = "1.8", features = ["attributes"] }
+async-tls = "0.11"
+async-tungstenite = "0.12"
 futures-util = "0.3"
 dotenv = "0.15"
