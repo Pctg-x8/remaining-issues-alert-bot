@@ -3,6 +3,10 @@ table! {
         github_id -> Integer,
         last_intime -> Datetime,
         last_outtime -> Datetime,
+        default_intime -> Nullable<Time>,
+        default_outtime -> Nullable<Time>,
+        temporal_intime -> Nullable<Time>,
+        temporal_outtime -> Nullable<Time>,
     }
 }
 

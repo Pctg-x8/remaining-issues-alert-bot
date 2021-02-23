@@ -203,7 +203,8 @@ impl Logic {
         let sched = Scheduler::new(UserNotifyHandler {
             remote: remote.clone(),
             api: api_client.clone(),
-        }).await;
+        })
+        .await;
         let mut intime_cancellation_token = BTreeMap::new();
         let mut outtime_cancellation_token = BTreeMap::new();
         for iot in iotimes {
@@ -842,7 +843,7 @@ fn reply_to<A: slack::IApiSender>(
     api: &A,
     src: &ReplyUserIdentity,
     msg: &str,
-) -> impl Future<Output = Result<slack::ApiResult<()>, A::Error>> {
+) -> impl Future<Output = Result<slack::ApiResult<slack::EmptyResultReceiver>, A::Error>> {
     api.send(&chat::PostMessageParams {
         channel: &src.channel,
         text: &format!("<@{}> {}", &src.user, msg),
@@ -854,7 +855,7 @@ fn general_reply_to_id<A: slack::IApiSender>(
     api: &A,
     id: &str,
     msg: &str,
-) -> impl Future<Output = Result<slack::ApiResult<()>, A::Error>> {
+) -> impl Future<Output = Result<slack::ApiResult<slack::EmptyResultReceiver>, A::Error>> {
     const RESPONSE_CHANNEL: &'static str = "CDQ0SLXG8";
     api.send(&chat::PostMessageParams {
         channel: RESPONSE_CHANNEL,
@@ -868,7 +869,7 @@ fn report_error<A: slack::IApiSender, E: std::fmt::Debug>(
     replying: &ReplyUserIdentity,
     text: &str,
     error: &E,
-) -> impl Future<Output = Result<slack::ApiResult<()>, A::Error>> {
+) -> impl Future<Output = Result<slack::ApiResult<slack::EmptyResultReceiver>, A::Error>> {
     api.send(&chat::PostMessageParams {
         channel: &replying.channel,
         text: &format!("An error occured in replying to {:?}", text),

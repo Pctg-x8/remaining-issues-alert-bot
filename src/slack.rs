@@ -8,6 +8,9 @@ pub struct GenericResult {
     pub ok: bool,
 }
 
+#[derive(serde::Deserialize)]
+pub struct EmptyResultReceiver {}
+
 pub enum ApiResult<T> {
     Ok(T),
     Errored(String),
@@ -52,13 +55,14 @@ pub trait IApiSender {
     fn send<A: asyncslackbot::SlackWebAPI>(
         &self,
         call: &A,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<ApiResult<()>, Self::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<EmptyResultReceiver>, Self::Error>> + Send>>
+    {
         self.send_apicall(call.to_apicall())
     }
     fn send_apicall(
         &self,
         call: asyncslackbot::SlackWebApiCall,
-    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<()>, Self::Error>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<EmptyResultReceiver>, Self::Error>> + Send>>;
     fn send2<A: Api>(
         &self,
         call: &A,
@@ -79,13 +83,15 @@ impl<T: IApiSender> IApiSender for std::sync::Arc<T> {
     fn send<A: asyncslackbot::SlackWebAPI>(
         &self,
         call: &A,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<ApiResult<()>, Self::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<EmptyResultReceiver>, Self::Error>> + Send>>
+    {
         T::send(self, call)
     }
     fn send_apicall(
         &self,
         call: asyncslackbot::SlackWebApiCall,
-    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<()>, Self::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<EmptyResultReceiver>, Self::Error>> + Send>>
+    {
         T::send_apicall(self, call)
     }
     fn send2<A: Api>(
@@ -126,7 +132,8 @@ impl IApiSender for ApiClient {
     fn send_apicall(
         &self,
         call: asyncslackbot::SlackWebApiCall,
-    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<()>, surf::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ApiResult<EmptyResultReceiver>, surf::Error>> + Send>>
+    {
         pub struct SlackWebApiCall {
             endpoint: &'static str,
             paramdata: String,
